@@ -410,42 +410,68 @@ def analyze(img_path, actions = ['emotion', 'age', 'gender', 'race']
 
 			elif action == 'gender':
 				if img_224 is None:
-					img_224, region = functions.preprocess_face(img = img_path, target_size = (224, 224), grayscale = False, enforce_detection = enforce_detection, detector_backend = detector_backend, return_region = True)
+					old_shape = functions.load_image(img_path).shape
+					img_224, regions, detected_face = functions.preprocess_face(img = img_path, target_size = (224, 224), grayscale = False, enforce_detection = enforce_detection, detector_backend = detector_backend, return_region = True)
+					
+					resp_obj["regions"] = [{} for i in range(len(regions))]
 
-				resp_obj["region"] = {}
+					for reg_id, region in enumerate(regions):
+						for i, parameter in enumerate(region_labels):
+							resp_obj["regions"][reg_id][parameter] = region[i]
+					
+					resp_obj["detected_face"] = detected_face
 
-				for i, parameter in enumerate(region_labels):
-					resp_obj["region"][parameter] = region[i]
-				
-				gender_prediction = models['gender'].predict(img_224)[0,:]
+				if not detected_face: 
+					resp_obj["gender"] = [0.0, 0.0]
+				else:
+					gender_predictions = np.zeros((len(img_224), 2))
+					for i, img in enumerate(img_224):
+						gender_predictions[i] = models['gender'].predict(img)[0,:]
 
-				if np.argmax(gender_prediction) == 0:
-					gender = "Woman"
-				elif np.argmax(gender_prediction) == 1:
-					gender = "Man"
+					# average gender probs over top 10 detected faces
+					gender_prediction = np.mean(gender_predictions, axis=0)
 
-				resp_obj["gender"] = gender
+					resp_obj["gender"] = list(gender_prediction)
+
+				resp_obj["gender_labels"] = ["Female", "Male"]
 
 			elif action == 'race':
 				if img_224 is None:
-					img_224, region = functions.preprocess_face(img = img_path, target_size = (224, 224), grayscale = False, enforce_detection = enforce_detection, detector_backend = detector_backend, return_region = True) #just emotion model expects grayscale images
-				race_predictions = models['race'].predict(img_224)[0,:]
+					img_224, regions, detected_face = functions.preprocess_face(img = img_path, target_size = (224, 224), grayscale = False, enforce_detection = enforce_detection, detector_backend = detector_backend, return_region = True) #just emotion model expects grayscale images
+
+					resp_obj["regions"] = [{} for i in range(len(regions))]
+
+					for reg_id, region in enumerate(regions):
+						for i, parameter in enumerate(region_labels):
+							resp_obj["regions"][reg_id][parameter] = region[i]
+					
+					resp_obj["detected_face"] = detected_face
+
 				race_labels = ['asian', 'indian', 'black', 'white', 'middle eastern', 'latino hispanic']
 
-				resp_obj["region"] = {}
+				
 
-				for i, parameter in enumerate(region_labels):
-					resp_obj["region"][parameter] = region[i]
-				
-				sum_of_predictions = race_predictions.sum()
-				
-				resp_obj["race"] = {}
-				for i in range(0, len(race_labels)):
-					race_label = race_labels[i]
-					race_prediction = 100 * race_predictions[i] / sum_of_predictions
-					resp_obj["race"][race_label] = race_prediction
-				
-				resp_obj["dominant_race"] = race_labels[np.argmax(race_predictions)]
+				if not detected_face: 
+					resp_obj["race"] = [0.0] * 6
+					resp_obj["dominant_race"] = ""
+				else:
+					race_predictions = np.zeros((len(img_224), 6))
+					for i, img in enumerate(img_224):
+						race_predictions[i] = models['race'].predict(img)[0,:]
+					
+					race_predictions = np.mean(race_predictions, axis=0)
+					sum_of_predictions = race_predictions.sum()
+					
+					resp_obj["race"] = []
+					
+					for i in range(0, len(race_labels)):
+						race_label = race_labels[i]
+						race_prediction = race_predictions[i] / sum_of_predictions
+						resp_obj["race"].append(race_prediction)
+
+					resp_obj["dominant_race"] = race_labels[np.argmax(race_predictions)]
+
+				resp_obj["race_labels"] = race_labels # return race names in order, just for clarity
 			
 		#---------------------------------
 		
@@ -456,13 +482,14 @@ def analyze(img_path, actions = ['emotion', 'age', 'gender', 'race']
 
 	if bulkProcess == True:
 		
-		resp_obj = {}
+		# resp_obj = {}
 		
-		for i in range(0, len(resp_objects)):
-			resp_item = resp_objects[i]
-			resp_obj["instance_%d" % (i+1)] = resp_item
+		# for i in range(0, len(resp_objects)):
+		# 	resp_item = resp_objects[i]
+		# 	resp_obj["instance_%d" % (i+1)] = resp_item
 
-		return resp_obj
+		# return resp_obj
+		return resp_objects
 
 def find(img_path, db_path, model_name ='VGG-Face', distance_metric = 'cosine', model = None, enforce_detection = True, detector_backend = 'mtcnn'):
 	

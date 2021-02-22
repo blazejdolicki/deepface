@@ -301,14 +301,19 @@ def detect_face(img, detector_backend = 'opencv', grayscale = False, enforce_det
 		detections = face_detector.detect_faces(img_rgb)
 		
 		if len(detections) > 0:
-			detection = detections[0]
-			x, y, w, h = detection["box"]
-			detected_face = img[int(y):int(y+h), int(x):int(x+w)]
-			return detected_face, [x, y, w, h]
+			MAX_DETECTIONS = 10
+			detections = detections[:MAX_DETECTIONS]
+			assert len(detections) <= MAX_DETECTIONS
+			coords = [detection["box"] for detection in detections]
+			detected_faces = [img[int(y):int(y+h), int(x):int(x+w)] for (x, y, w, h) in coords]
+			# x, y, w, h = detection["box"]
+			# detected_face = img[int(y):int(y+h), int(x):int(x+w)]
+			return detected_faces, coords, True
 		
 		else: #if no face detected
+			print("No face detected")
 			if not enforce_detection:			
-				return img, img_region
+				return [img], [img_region], False
 	
 			else:
 				raise ValueError("Face could not be detected. Please confirm that the picture is a face photo or consider to set enforce_detection param to False.")
@@ -446,34 +451,38 @@ def preprocess_face(img, target_size=(224, 224), grayscale = False, enforce_dete
 	img = load_image(img)
 	base_img = img.copy()
 	
-	img, region = detect_face(img = img, detector_backend = detector_backend, grayscale = grayscale, enforce_detection = enforce_detection)
+	imgs, regions, detected_face = detect_face(img = img, detector_backend = detector_backend, grayscale = grayscale, enforce_detection = enforce_detection)
 	
-	#--------------------------
-	
-	if img.shape[0] > 0 and img.shape[1] > 0:
-		img = align_face(img = img, detector_backend = detector_backend)
-	else:
+	imgs_pixels = []
+	print("num imgs", len(imgs))
+	for img in imgs:
+		#--------------------------
 		
-		if enforce_detection == True:
-			raise ValueError("Detected face shape is ", img.shape,". Consider to set enforce_detection argument to False.")
-		else: #restore base image 
-			img = base_img.copy()
+		if img.shape[0] > 0 and img.shape[1] > 0:
+			img = align_face(img = img, detector_backend = detector_backend)
+		else:
+			
+			if enforce_detection == True:
+				raise ValueError("Detected face shape is ", img.shape,". Consider to set enforce_detection argument to False.")
+			else: #restore base image 
+				img = base_img.copy()
+			
+		#--------------------------
 		
-	#--------------------------
-	
-	#post-processing
-	if grayscale == True:
-		img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-		
-	img = cv2.resize(img, target_size)
-	img_pixels = image.img_to_array(img)
-	img_pixels = np.expand_dims(img_pixels, axis = 0)
-	img_pixels /= 255 #normalize input in [0, 1]
-	
+		#post-processing
+		if grayscale == True:
+			img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+			
+		img = cv2.resize(img, target_size)
+		img_pixels = image.img_to_array(img)
+		img_pixels = np.expand_dims(img_pixels, axis = 0)
+		img_pixels /= 255 #normalize input in [0, 1]
+		imgs_pixels.append(img_pixels)
+
 	if return_region == True:
-		return img_pixels, region
+		return imgs_pixels, regions, detected_face
 	else:
-		return img_pixels
+		return imgs_pixels, detected_face
 
 def find_input_shape(model):
 	
